@@ -55,6 +55,33 @@ wipes it back to the starting bankroll.
 | `strategy.max_positions_per_event` | max buckets held on one day's temperature (they're correlated) |
 | `cities` | which Kalshi series to trade + NWS station coordinates |
 
+## Backtesting
+
+Replay the exact live strategy over real historical data:
+
+```bash
+python backtest.py --start 2026-06-01 --end 2026-06-30 --bankroll 1000
+```
+
+Defaults to last calendar month and a $1,000 bankroll. Prices come from
+Kalshi's public hourly candlesticks for each settled market; forecasts come
+from Open-Meteo's historical-forecast archive (the forecast *as issued that
+day*, so there's no lookahead); wins/losses use the market's actual
+settlement. Each day the strategy sees the morning forecast and the 9am local
+quotes, trades whatever clears the edge threshold with the same Kelly sizing,
+fees, and per-event caps as live, and compounds.
+
+Caveats to keep in mind when reading results:
+
+- fills are assumed at the candle's closing ask with no market impact — fine
+  for small size, optimistic for large
+- Open-Meteo's archived forecast is a stand-in for the NWS forecast the live
+  engine uses; they're close but not identical
+- with a large bankroll, `strategy.max_contracts` (default 10) binds before
+  Kelly does — raise it via `--max-contracts` to test bigger sizing
+- one month of daily weather markets is a small sample; treat any single-month
+  result, good or bad, as noisy
+
 ## Going live (real money)
 
 > **Warning:** live mode places real orders with real money. Run paper mode
