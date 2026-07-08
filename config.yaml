@@ -1,0 +1,81 @@
+# Algo-Lab: Kalshi weather trading configuration
+
+# "paper" = simulated fills against real Kalshi market data (no money at risk)
+# "live"  = real orders on Kalshi (requires api credentials below)
+mode: paper
+
+# Starting bankroll for the paper account, in dollars.
+starting_bankroll: 10.00
+
+# How often the engine scans markets and trades, in minutes (0 disables auto).
+cycle_minutes: 10
+
+strategy:
+  # Minimum model edge (probability minus price, after fees) required to trade.
+  edge_threshold: 0.06
+  # Fraction of full Kelly stake to use (0.25 = quarter Kelly).
+  kelly_fraction: 0.25
+  # Never put more than this fraction of cash into a single trade.
+  max_stake_fraction: 0.25
+  # Ignore contracts priced outside this band (cents).
+  min_price_cents: 5
+  max_price_cents: 95
+  # Hard cap on contracts per market.
+  max_contracts: 10
+  # Max distinct positions per event (buckets of one event are one weather bet
+  # — this stops the bankroll piling into a single day's temperature).
+  max_positions_per_event: 2
+  # Forecast uncertainty (std dev of daily-high error, deg F) by days out.
+  sigma_by_days_out: [2.0, 3.0, 3.5, 4.0]
+
+# Kalshi daily-high-temperature series and the NWS station used to settle them.
+cities:
+  - name: New York (Central Park)
+    series: KXHIGHNY
+    lat: 40.783
+    lon: -73.967
+    tz: America/New_York
+  - name: Chicago (Midway)
+    series: KXHIGHCHI
+    lat: 41.786
+    lon: -87.752
+    tz: America/Chicago
+  - name: Miami
+    series: KXHIGHMIA
+    lat: 25.788
+    lon: -80.317
+    tz: America/New_York
+  - name: Austin
+    series: KXHIGHAUS
+    lat: 30.321
+    lon: -97.760
+    tz: America/Chicago
+  - name: Denver
+    series: KXHIGHDEN
+    lat: 39.847
+    lon: -104.656
+    tz: America/Denver
+  - name: Los Angeles
+    series: KXHIGHLAX
+    lat: 33.938
+    lon: -118.389
+    tz: America/Los_Angeles
+  - name: Philadelphia
+    series: KXHIGHPHIL
+    lat: 39.868
+    lon: -75.231
+    tz: America/New_York
+
+kalshi:
+  # Public market data host (no auth needed).
+  api_base: https://api.elections.kalshi.com/trade-api/v2
+  # Live trading credentials — leave empty in paper mode.
+  # Create an API key at https://kalshi.com/account/profile and put the key id
+  # here (or in env KALSHI_API_KEY_ID) and the RSA private key file path below
+  # (or env KALSHI_PRIVATE_KEY_PATH). NEVER commit the key file.
+  api_key_id: ""
+  private_key_path: ""
+
+server:
+  host: 127.0.0.1
+  port: 8000

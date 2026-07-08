@@ -1,162 +1,93 @@
-# Quant Research Agent
+# Algo-Lab — Kalshi Weather Trader
 
-A lightweight quantitative research dashboard built with **Streamlit**, **yfinance**, and optional **Groq LLM** support.
+An automated trading system for [Kalshi](https://kalshi.com) daily
+high-temperature markets, with a web dashboard. It compares National Weather
+Service forecasts against market prices and trades when the model sees an edge.
 
-The app pulls historical market data, computes key risk/return metrics, visualizes price action with technical indicators, and generates a **stochastic future outlook** using Monte Carlo simulation. It is designed to look and feel like a real buy-side research tool, not a toy demo.
+**Paper trading by default.** The paper account simulates fills against real,
+live Kalshi market data with a configurable starting bankroll (default **$10**),
+so you can watch the strategy run for a while before risking real money.
 
----
+## How it works
 
-## Features
+Every cycle (default: every 10 minutes) the engine:
 
-### Market Data
+1. **Settles** any open positions whose markets have finalized (win pays $1/contract).
+2. **Fetches forecasts** — hourly NWS forecasts for each configured city, reduced
+   to a projected daily high per local calendar day.
+3. **Scans markets** — all open markets in each city's daily-high series
+   (e.g. `KXHIGHNY` for NYC/Central Park).
+4. **Models probabilities** — the daily high is treated as
+   `Normal(forecast, σ)`, with σ widening for dates further out, giving a model
+   probability for every temperature bucket.
+5. **Trades edges** — if model probability beats the ask price by more than the
+   edge threshold (after Kalshi's fee), it buys YES (or NO when the market looks
+   overpriced), sized by fractional Kelly and capped per trade.
+6. **Marks to market** and records the equity curve.
 
-* Historical OHLCV data via `yfinance`
-* Robust handling of ticker formats and data edge cases
-* Clean normalization of price data
+Positions are held to settlement (these are same-/next-day markets).
 
-### Analytics
-
-* CAGR
-* Annualized return and volatility
-* Sharpe ratio (rf = 0)
-* Maximum drawdown
-* Moving averages (20 / 50 / 200 day)
-* Trend flags (price vs MA200, MA50 vs MA200)
-
-### Visualization
-
-* Interactive **candlestick** or **close-line** chart
-* Volume chart
-* Overlayed moving averages
-* Clean, dashboard-style layout
-
-### Future Outlook (Stochastic)
-
-* Monte Carlo simulation using **Geometric Brownian Motion**
-* Configurable horizon and number of simulations
-* Median path and uncertainty bands (10–90, 25–75 percentiles)
-* Probability of finishing above current price
-* Clearly labeled as a **simulation**, not a prediction
-
-### Research Notes (Optional)
-
-* Short, structured markdown report generated via **Groq**
-* Falls back to a deterministic summary if no API key is provided
-
----
-
-## Project Structure
-
-```
-.
-├── app.py               # Streamlit UI
-├── agent_engine.py      # Data, analytics, simulation, reporting
-├── requirements.txt     # Python dependencies
-├── .env                 # Local environment variables (not committed)
-└── README.md
-```
-
----
-
-## Installation
-
-### 1. Create and activate a virtual environment
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-```
-
-### 2. Install dependencies
+## Quick start (paper trading)
 
 ```bash
 pip install -r requirements.txt
+python run.py
 ```
 
-Minimal required packages:
+Open http://127.0.0.1:8000 — the dashboard shows portfolio value, the equity
+curve, open positions, the live market scan with model-vs-market edges, and the
+trade log. "Run cycle now" triggers a scan immediately; auto-trading runs in the
+background on the configured interval.
 
-```text
-streamlit
-yfinance
-pandas
-numpy
-plotly
-python-dotenv
+The paper ledger lives in `data/portfolio_paper.db`. "Reset paper account"
+wipes it back to the starting bankroll.
+
+## Configuration (`config.yaml`)
+
+| Key | Meaning |
+|---|---|
+| `mode` | `paper` (default) or `live` |
+| `starting_bankroll` | paper account starting cash (dollars) |
+| `cycle_minutes` | auto-trade interval (0 disables auto) |
+| `strategy.edge_threshold` | minimum after-fee edge to trade (0.06 = 6¢/contract) |
+| `strategy.kelly_fraction` | fraction of full Kelly to stake |
+| `strategy.max_stake_fraction` | max share of cash in one trade |
+| `strategy.max_positions_per_event` | max buckets held on one day's temperature (they're correlated) |
+| `cities` | which Kalshi series to trade + NWS station coordinates |
+
+## Going live (real money)
+
+> **Warning:** live mode places real orders with real money. Run paper mode
+> long enough to trust the strategy first, keep the bankroll small, and expect
+> losses — weather markets are competitive and forecasts are public information.
+
+1. Create an API key at kalshi.com → Account → API, save the RSA private key
+   file outside the repo (or in `keys/`, which is gitignored).
+2. Set credentials via env vars (`KALSHI_API_KEY_ID`,
+   `KALSHI_PRIVATE_KEY_PATH`) or in `config.yaml`.
+3. Set `mode: live` in `config.yaml` and restart.
+
+Live mode uses the exact same strategy code path; orders are placed as limit
+orders at the quoted ask, and the local ledger (`data/portfolio_live.db`)
+mirrors them. The server refuses to start in live mode without credentials.
+
+## Project layout
+
 ```
-
-Optional (for LLM-generated reports):
-
-```text
-langchain-groq
-langchain-core
+backend/
+  config.py     load + validate config.yaml
+  kalshi.py     Kalshi Trade API v2 client (public data + signed live orders)
+  weather.py    NWS hourly forecasts -> projected daily highs
+  strategy.py   normal-distribution bucket model, edge + Kelly sizing
+  store.py      SQLite ledger: cash, positions, trades, equity curve
+  engine.py     the scan/trade/settle cycle
+  server.py     Flask API + dashboard host + auto-trade loop
+frontend/       dashboard (vanilla JS + SVG)
+config.yaml     all knobs
+run.py          entry point
 ```
-
----
-
-## Environment Variables
-
-Create a `.env` file in the project root.
-
-```env
-# Optional: only needed for LLM-generated reports
-GROQ_API_KEY=your_groq_api_key
-GROQ_MODEL=llama-3.3-70b-versatile
-```
-
-Do **not** commit `.env` to GitHub.
-
----
-
-## Running the App
-
-```bash
-streamlit run app.py
-```
-
-Open the local URL shown in the terminal (usually `http://localhost:8501`).
-
----
-
-## How the “Prediction” Works
-
-The **Future Outlook** section uses a Monte Carlo simulation based on historical **log returns**:
-
-* Drift and volatility are estimated from historical data
-* Thousands of future price paths are simulated
-* Quantile bands summarize the distribution of outcomes
-
-This is a **probabilistic scenario analysis**, not a forecast or price target. It is meant to support intuition around risk and uncertainty, not to provide trading signals.
-
----
-
-## Design Philosophy
-
-* Simple models, clearly labeled
-* No hidden assumptions
-* No fabricated precision
-* Emphasis on clarity, risk, and uncertainty
-
-This makes the project suitable for:
-
-* Quant / research portfolios
-* Internship or recruiting demos
-* Personal experimentation with financial modeling
-
----
-
-## Possible Extensions
-
-* Volatility modeling (e.g., GARCH-based simulations)
-* Benchmark overlays
-* Factor or return decomposition
-* Strategy backtesting
-* Fundamental or macro overlays
-
----
 
 ## Disclaimer
 
-This project is for **educational and research purposes only**.
-It is not investment advice.
-
-
+This is an experimental research tool, not financial advice. Trading involves
+risk of loss. You are responsible for anything it does with your account.
