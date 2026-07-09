@@ -29,39 +29,48 @@ strategy:
   sigma_by_days_out: [2.0, 3.0, 3.5, 4.0]
 
 # Kalshi daily-high-temperature series and the NWS station used to settle them.
+# `station` is that settlement station's observation ID on api.weather.gov; the
+# engine tracks its running high today and zeroes out buckets already ruled out.
 cities:
   - name: New York (Central Park)
     series: KXHIGHNY
+    station: KNYC
     lat: 40.783
     lon: -73.967
     tz: America/New_York
   - name: Chicago (Midway)
     series: KXHIGHCHI
+    station: KMDW
     lat: 41.786
     lon: -87.752
     tz: America/Chicago
   - name: Miami
     series: KXHIGHMIA
+    station: KMIA
     lat: 25.788
     lon: -80.317
     tz: America/New_York
   - name: Austin
     series: KXHIGHAUS
+    station: KATT
     lat: 30.321
     lon: -97.760
     tz: America/Chicago
   - name: Denver
     series: KXHIGHDEN
+    station: KDEN
     lat: 39.847
     lon: -104.656
     tz: America/Denver
   - name: Los Angeles
     series: KXHIGHLAX
+    station: KLAX
     lat: 33.938
     lon: -118.389
     tz: America/Los_Angeles
   - name: Philadelphia
     series: KXHIGHPHIL
+    station: KPHL
     lat: 39.868
     lon: -75.231
     tz: America/New_York

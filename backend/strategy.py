@@ -4,6 +4,12 @@ The daily high is modeled as Normal(forecast, sigma), with sigma growing the
 further out the settlement date is. Each Kalshi temperature bucket then gets a
 model probability, which is compared against the market's ask price (plus
 fees) to find positive-expected-value trades.
+
+For the current day, the high already observed at the settlement station is a
+hard floor: the settled high can't come in below it. The model becomes
+max(running_high, Normal(forecast, sigma)) — buckets entirely below the
+running high get probability 0, and their mass shifts to the bucket the
+running high currently sits in.
 """
 
 import datetime as dt
@@ -17,7 +23,19 @@ def normal_cdf(x: float, mean: float, sigma: float) -> float:
     return 0.5 * (1 + math.erf((x - mean) / (sigma * math.sqrt(2))))
 
 
-def bucket_probability(market: dict, forecast_high: float, sigma: float) -> float | None:
+def high_cdf(x: float, forecast: float, sigma: float,
+             running_high: float | None = None) -> float:
+    """CDF of the daily high, modeled as max(running_high, Normal(forecast, sigma)).
+
+    P(max(R, N) < x) is 0 for x <= R and P(N < x) otherwise.
+    """
+    if running_high is not None and x <= running_high:
+        return 0.0
+    return normal_cdf(x, forecast, sigma)
+
+
+def bucket_probability(market: dict, forecast_high: float, sigma: float,
+                       running_high: float | None = None) -> float | None:
     """P(daily high lands in this market's bucket) under the model.
 
     Temperature buckets use half-degree-shifted bounds so integer highs fall
@@ -27,13 +45,15 @@ def bucket_probability(market: dict, forecast_high: float, sigma: float) -> floa
     floor_s = market.get("floor_strike")
     cap_s = market.get("cap_strike")
 
+    def cdf(x: float) -> float:
+        return high_cdf(x, forecast_high, sigma, running_high)
+
     if strike_type == "between" and floor_s is not None and cap_s is not None:
-        lo, hi = floor_s - 0.5, cap_s + 0.5
-        return normal_cdf(hi, forecast_high, sigma) - normal_cdf(lo, forecast_high, sigma)
+        return cdf(cap_s + 0.5) - cdf(floor_s - 0.5)
     if strike_type in ("greater", "greater_or_equal") and floor_s is not None:
-        return 1 - normal_cdf(floor_s - 0.5, forecast_high, sigma)
+        return 1 - cdf(floor_s - 0.5)
     if strike_type in ("less", "less_or_equal") and cap_s is not None:
-        return normal_cdf(cap_s + 0.5, forecast_high, sigma)
+        return cdf(cap_s + 0.5)
     return None
 
 
@@ -75,8 +95,13 @@ def evaluate_market(
     today_local: dt.date,
     cash_cents: int,
     cfg: dict,
+    running_high: float | None = None,
 ) -> tuple[dict | None, Signal | None]:
-    """Score one market. Returns (row for the dashboard, tradable signal or None)."""
+    """Score one market. Returns (row for the dashboard, tradable signal or None).
+
+    `running_high` is the high already observed today at the settlement
+    station; pass it only for markets settling today.
+    """
     strat = cfg["strategy"]
     event_date = event_date_from_ticker(market.get("event_ticker", ""))
     if event_date is None:
@@ -84,9 +109,11 @@ def evaluate_market(
     days_out = (event_date - today_local).days
     if days_out < 0:
         return None, None
+    if days_out > 0:
+        running_high = None  # only today's observations constrain today's high
     sigma = sigma_for(days_out, strat["sigma_by_days_out"])
 
-    p_yes = bucket_probability(market, forecast_high, sigma)
+    p_yes = bucket_probability(market, forecast_high, sigma, running_high)
     if p_yes is None:
         return None, None
 
@@ -112,6 +139,7 @@ def evaluate_market(
         "yes_ask": yes_ask,
         "model_prob_yes": round(p_yes, 4),
         "forecast_high": forecast_high,
+        "running_high": running_high,
         "sigma": sigma,
         "best_edge": round(max((c[3] for c in candidates), default=0.0), 4),
         "volume": market.get("volume", 0),

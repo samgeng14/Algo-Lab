@@ -102,6 +102,7 @@ function renderMarkets(m) {
       return `<tr>
         <td title="${r.ticker}">${r.title}</td><td>${r.city}</td><td>${r.event_date}</td>
         <td class="num">${r.forecast_high}°F</td>
+        <td class="num">${r.running_high != null ? r.running_high.toFixed(1) + "°F" : "—"}</td>
         <td class="num">${r.yes_bid}¢ / ${r.yes_ask}¢</td>
         <td class="num">${(100 * r.model_prob_yes).toFixed(0)}%</td>
         <td class="num ${edgeCls}">${(100 * r.best_edge).toFixed(1)}¢</td>

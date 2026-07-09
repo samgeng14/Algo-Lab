@@ -72,6 +72,13 @@ class Engine:
     def _trade_city(self, city: dict, traded: set, event_counts: dict) -> tuple[list, list]:
         highs = self.weather.daily_highs(city["lat"], city["lon"], city["tz"])
         today_local = dt.datetime.now(ZoneInfo(city["tz"])).date()
+        obs_high = None
+        if city.get("station"):
+            try:
+                obs_high = self.weather.running_high(city["station"], city["tz"])
+            except Exception:
+                log.warning("observations unavailable for %s (%s)",
+                            city["name"], city["station"], exc_info=True)
         markets = self.kalshi.get_markets(city["series"])
         rows, fills = [], []
 
@@ -84,6 +91,7 @@ class Engine:
             row, sig = evaluate_market(
                 market, city["name"], highs[event_date], today_local,
                 self.store.cash_cents(), self.cfg,
+                running_high=obs_high if event_date == today_local else None,
             )
             if row:
                 rows.append(row)
