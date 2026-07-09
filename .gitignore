@@ -1,3 +1,11 @@
-.env
 __pycache__/
+*.pyc
+.venv/
+venv/
 .idea/
+.vscode/
+data/*.db
+data/*.db-journal
+.env
+keys/
+*.pem
