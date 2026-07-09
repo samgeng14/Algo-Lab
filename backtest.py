@@ -23,8 +23,9 @@ historical-forecast-api.open-meteo.com.
 
 import argparse
 import datetime as dt
+import statistics
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from zoneinfo import ZoneInfo
 
 import requests
@@ -125,6 +126,9 @@ def run_backtest(cfg: dict, start: dt.date, end: dt.date, bankroll_cents: int,
 
     cash = bankroll_cents
     equity_curve, trades = [], []
+    skips: Counter = Counter()
+    fetch_errors: Counter = Counter()
+    edges_seen: list[float] = []
     day = start
     while day <= end:
         # trade: for each city, evaluate that day's buckets at the decision hour
@@ -138,16 +142,28 @@ def run_backtest(cfg: dict, start: dt.date, end: dt.date, bankroll_cents: int,
                 try:
                     candles = fetch_candles(session, city["series"], m["ticker"],
                                             decision_ts - 6 * 3600, decision_ts + 60)
-                except Exception:
+                except Exception as e:
+                    skips["candle fetch failed"] += 1
+                    fetch_errors[f"{type(e).__name__}: {e}"[:120]] += 1
+                    continue
+                if not candles:
+                    skips["no candles in decision window"] += 1
                     continue
                 q = quote_at(candles, decision_ts)
                 if not q:
+                    skips["no ask quote at decision time"] += 1
                     continue
                 snapshot = dict(m, yes_bid=q[0], yes_ask=q[1])
-                _, sig = evaluate_market(snapshot, city["name"], forecasts[day], day,
-                                         cash, cfg)
+                row, sig = evaluate_market(snapshot, city["name"], forecasts[day], day,
+                                           cash, cfg)
+                if row is None:
+                    skips["unparseable market (missing strike/date info)"] += 1
+                    continue
+                edges_seen.append(row["best_edge"])
                 if sig:
                     signals_today.append((sig, m["result"]))
+                else:
+                    skips["evaluated, edge below threshold"] += 1
 
         # respect the per-event cap, best edges first, then fill sequentially
         signals_today.sort(key=lambda x: x[0].edge, reverse=True)
@@ -169,6 +185,20 @@ def run_backtest(cfg: dict, start: dt.date, end: dt.date, bankroll_cents: int,
                            "won": won, "pnl": payout - cost})
         equity_curve.append((day, cash))
         day += dt.timedelta(days=1)
+
+    if verbose:
+        print("\nmarket funnel:")
+        for reason, n in skips.most_common():
+            print(f"  {n:5d}  {reason}")
+        print(f"  {len(trades):5d}  traded")
+        for err, n in fetch_errors.most_common(3):
+            print(f"         ({n}x) {err}")
+        if edges_seen:
+            thr = cfg["strategy"]["edge_threshold"]
+            print(f"\nedge distribution over {len(edges_seen)} evaluated markets "
+                  f"(threshold {thr:+.2f}):")
+            print(f"  max {max(edges_seen):+.3f}   median {statistics.median(edges_seen):+.3f}   "
+                  f"above threshold: {sum(e >= thr for e in edges_seen)}")
 
     return summarize(bankroll_cents, cash, equity_curve, trades, verbose)
 
