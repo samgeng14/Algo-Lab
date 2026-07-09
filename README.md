@@ -15,15 +15,21 @@ Every cycle (default: every 10 minutes) the engine:
 1. **Settles** any open positions whose markets have finalized (win pays $1/contract).
 2. **Fetches forecasts** — hourly NWS forecasts for each configured city, reduced
    to a projected daily high per local calendar day.
-3. **Scans markets** — all open markets in each city's daily-high series
+3. **Tracks live observations** — the running high observed today at each
+   market's settlement station (e.g. KNYC in Central Park). The settled daily
+   high can never come in below what the station has already recorded.
+4. **Scans markets** — all open markets in each city's daily-high series
    (e.g. `KXHIGHNY` for NYC/Central Park).
-4. **Models probabilities** — the daily high is treated as
+5. **Models probabilities** — the daily high is treated as
    `Normal(forecast, σ)`, with σ widening for dates further out, giving a model
-   probability for every temperature bucket.
-5. **Trades edges** — if model probability beats the ask price by more than the
+   probability for every temperature bucket. For today's markets the model is
+   clamped at the observed running high: buckets already ruled out go to
+   probability 0 (their NO side becomes a near-sure trade), and the bucket the
+   running high sits in absorbs their probability mass.
+6. **Trades edges** — if model probability beats the ask price by more than the
    edge threshold (after Kalshi's fee), it buys YES (or NO when the market looks
    overpriced), sized by fractional Kelly and capped per trade.
-6. **Marks to market** and records the equity curve.
+7. **Marks to market** and records the equity curve.
 
 Positions are held to settlement (these are same-/next-day markets).
 
@@ -53,7 +59,7 @@ wipes it back to the starting bankroll.
 | `strategy.kelly_fraction` | fraction of full Kelly to stake |
 | `strategy.max_stake_fraction` | max share of cash in one trade |
 | `strategy.max_positions_per_event` | max buckets held on one day's temperature (they're correlated) |
-| `cities` | which Kalshi series to trade + NWS station coordinates |
+| `cities` | Kalshi series to trade + settlement station ID and coordinates |
 
 ## Backtesting
 
